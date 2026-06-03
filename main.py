@@ -37,6 +37,10 @@ log = logging.getLogger("a2.main")
 
 async def run():
     await a2_client.start()
+    print("\n" + "=" * 50)
+    print("🤖 A2 语音 Agent 已启动")
+    print("   等待唤醒...（请对我说话）")
+    print("=" * 50 + "\n")
 
     audio_input = ROS2AudioInputProcessor()
     pipeline, _llm = build_pipeline(audio_input)

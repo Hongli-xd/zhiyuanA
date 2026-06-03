@@ -38,6 +38,11 @@ from services.asr import build_asr
 log = logging.getLogger("a2.ros_audio")
 
 
+def _print_status(msg: str):
+    """给用户的终端状态提示（覆盖当前行）"""
+    print(f"\r\033[K{msg}\033[K", end="", flush=True)
+
+
 class ROS2AudioInputProcessor(FrameProcessor):
     """订阅 A2 麦克风 Topic，输出 TranscriptionFrame 的源处理器。"""
 
@@ -64,6 +69,7 @@ class ROS2AudioInputProcessor(FrameProcessor):
         self._ros_thread = threading.Thread(target=self._ros_spin, daemon=True)
         self._ros_thread.start()
         log.info("ROS2 音频订阅线程已启动, topic=%s", config.AUDIO_TOPIC)
+        _print_status("🎤 正在等待唤醒...（请对我说话）")
 
     def _ros_spin(self):
         try:
@@ -116,10 +122,13 @@ class ROS2AudioInputProcessor(FrameProcessor):
 
         if vad == "BEGIN":
             self._pcm_buffer = bytearray()
+            _print_status("🎤 正在听，请说话...")
             self._submit(self._emit(UserStartedSpeakingFrame()))
         elif vad == "PROCESSING":
             self._pcm_buffer.extend(pcm)
+            _print_status("🎤 正在听...（识别中）")
         elif vad == "END":
+            _print_status("📝 识别中...")
             self._pcm_buffer.extend(pcm)
             self._submit(self._emit(UserStoppedSpeakingFrame()))
             audio = bytes(self._pcm_buffer)
