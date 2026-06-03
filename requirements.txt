@@ -1,0 +1,19 @@
+# 核心框架
+pipecat-ai>=1.3.0
+langgraph>=0.2.0
+
+# LLM / HTTP
+anthropic>=0.40.0
+aiohttp>=3.9.0
+websockets>=12.0
+
+# ASR（二选一）
+# 云 ASR：无需额外依赖（用 aiohttp 调 OpenAI 兼容接口）
+# 本地 ASR：
+# faster-whisper>=1.0.0
+# numpy>=1.24.0
+
+# A2 / ROS2（仅机器人上需要，pip 装不上，随系统/ whl 提供）
+# rclpy                # 来自 ROS2 环境
+# a2_aimdk             # pip install prebuilt/a2_aimdk-2.0.1-py3-none-any.whl
+# ros2_plugin_proto    # source local_setup.bash
