@@ -33,7 +33,7 @@ HTTP_TIMEOUT = float(os.getenv("A2_HTTP_TIMEOUT", "5"))   # 秒
 #  ROS2 音频输入（来自技术选型文档）
 #  16kHz / 16bit PCM，带 VAD（BEGIN / PROCESSING / END）
 # ──────────────────────────────────────────────────────────────────────────
-AUDIO_TOPIC = os.getenv("A2_AUDIO_TOPIC", "/agent/audio/data/iflytek")
+AUDIO_TOPIC = os.getenv("A2_AUDIO_TOPIC", "/agent/process_audio_output/pb_3Aaimdk_2Eprotocol_2EProcessedAudioOutput")
 AUDIO_SAMPLE_RATE = 16000
 AUDIO_CHANNELS = 1
 

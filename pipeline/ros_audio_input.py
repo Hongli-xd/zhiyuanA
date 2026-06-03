@@ -1,19 +1,19 @@
 """
-ROS2 音频输入处理器。
+ROS2 音频输入处理器（对齐 voice.py 逻辑）。
 
-A2 麦克风（已做降噪+回声消除）通过 ROS2 Topic 输出 16kHz/16bit PCM，
-并带 VAD 状态（BEGIN / PROCESSING / END）。本处理器：
+A2 麦克风音频通过 ROS2 Topic /agent/process_audio_output 输出 RosMsgWrapper
+（内嵌序列化后的 ProcessedAudioOutput protobuf）。
 
-  - 在后台线程跑 rclpy.spin 订阅音频 Topic；
-  - VAD=BEGIN 时发 UserStartedSpeakingFrame（触发打断逻辑）；
-  - PROCESSING 期间累积 PCM；
-  - VAD=END 时发 UserStoppedSpeakingFrame，并把整段 PCM 交给 ASR，
-    转写出文本后注入一个 TranscriptionFrame 推进 pipeline。
+VAD 状态：
+  0 = 静默
+  1 = 语音开始
+  2 = 语音中
+  3 = 语音结束（触发 ASR 识别）
 
-这样把 A2 的 ROS2 世界桥接进 Pipecat 的 frame pipeline。
-
-注意：本文件依赖 rclpy 与 A2 的消息类型，只能在机器人上运行。
-为便于在无 ROS 环境下测试，提供 MockAudioInput（见 pipeline/build.py）。
+音频累积逻辑（voice.py 方式）：
+  vad=1 → 清空 buffer，开始累积
+  vad=2 → 持续累积
+  vad=3 → 累积最后一个 audio_data 片段，一起送 ASR
 """
 
 import asyncio
@@ -38,11 +38,6 @@ from services.asr import build_asr
 log = logging.getLogger("a2.ros_audio")
 
 
-def _print_status(msg: str):
-    """给用户的终端状态提示（覆盖当前行）"""
-    print(f"\r\033[K{msg}\033[K", end="", flush=True)
-
-
 class ROS2AudioInputProcessor(FrameProcessor):
     """订阅 A2 麦克风 Topic，输出 TranscriptionFrame 的源处理器。"""
 
@@ -51,8 +46,11 @@ class ROS2AudioInputProcessor(FrameProcessor):
         self._asr = build_asr()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ros_thread: Optional[threading.Thread] = None
-        self._pcm_buffer = bytearray()
         self._running = False
+
+        # 音频缓冲区：对齐 voice.py
+        self._audio_buffer = bytearray()
+        self._is_recording = False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -69,7 +67,6 @@ class ROS2AudioInputProcessor(FrameProcessor):
         self._ros_thread = threading.Thread(target=self._ros_spin, daemon=True)
         self._ros_thread.start()
         log.info("ROS2 音频订阅线程已启动, topic=%s", config.AUDIO_TOPIC)
-        _print_status("🎤 正在等待唤醒...（请对我说话）")
 
     def _ros_spin(self):
         try:
@@ -93,10 +90,10 @@ class ROS2AudioInputProcessor(FrameProcessor):
                 super().__init__("a2_agent_audio_node")
                 qos = QoSProfile(
                     history=QoSHistoryPolicy.KEEP_LAST, depth=10,
-                    reliability=QoSReliabilityPolicy.RELIABLE,
-                    durability=QoSDurabilityPolicy.VOLATILE,
+                    reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
                 )
-                # 音频消息类型按 A2 约定（RosMsgWrapper 携带 PCM + VAD 状态）
+                # 对齐 voice.py：完整 topic 名（含 protobuf 后缀）
                 from ros2_plugin_proto.msg import RosMsgWrapper
                 self.create_subscription(
                     RosMsgWrapper, config.AUDIO_TOPIC, self._on_audio, qos
@@ -114,35 +111,70 @@ class ROS2AudioInputProcessor(FrameProcessor):
 
     def _handle_ros_audio(self, msg):
         """
-        解析 A2 音频消息。VAD 状态字段名以实际消息为准，这里按
-        BEGIN/PROCESSING/END 三态处理（technical doc 描述）。
-        """
-        vad = getattr(msg, "vad_status", None) or self._extract_vad(msg)
-        pcm = b"".join(msg.data) if hasattr(msg, "data") else b""
+        解析 A2 音频消息，对齐 voice.py 的 ProcessedAudioOutput protobuf 逻辑。
 
-        if vad == "BEGIN":
-            self._pcm_buffer = bytearray()
-            _print_status("🎤 正在听，请说话...")
+        VAD 状态：
+          1 = 语音开始
+          2 = 语音中
+          3 = 语音结束（触发识别）
+          0 = 静默
+        """
+        try:
+            # 检查 serialization_type（必须是 "pb"）
+            if hasattr(msg, "serialization_type") and msg.serialization_type != "pb":
+                return
+
+            # 解析 protobuf
+            from ros2_plugin_proto.msg import RosMsgWrapper
+            from aimdk.protocol_pb2 import ProcessedAudioOutput
+
+            result = ProcessedAudioOutput()
+            result.ParseFromString(b"".join(msg.data))
+
+            stream_id = result.stream_id
+            vad_state = result.vad_state
+            audio_data = bytes(result.audio_data)
+
+            # 只处理板载麦克风（stream_id=1）
+            if stream_id != 1:
+                return
+
+        except Exception as e:
+            log.error("解析音频消息失败: %s", e)
+            return
+
+        # ── VAD 状态机：对齐 voice.py ────────────────────────────────
+        if vad_state == 1:  # 语音开始
+            self._audio_buffer.clear()
+            self._is_recording = True
+            if audio_data:
+                self._audio_buffer.extend(audio_data)
             self._submit(self._emit(UserStartedSpeakingFrame()))
-        elif vad == "PROCESSING":
-            self._pcm_buffer.extend(pcm)
-            _print_status("🎤 正在听...（识别中）")
-        elif vad == "END":
-            _print_status("📝 识别中...")
-            self._pcm_buffer.extend(pcm)
+            log.info("🎤 检测到语音开始")
+
+        elif vad_state == 2:  # 语音中
+            if self._is_recording and audio_data:
+                self._audio_buffer.extend(audio_data)
+
+        elif vad_state == 3:  # 语音结束
+            if self._is_recording and audio_data:
+                self._audio_buffer.extend(audio_data)
+            self._is_recording = False
+
+            total_size = len(self._audio_buffer)
+            if total_size < 6400:  # < 0.2s，太短跳过
+                log.info("⏩ 语音太短，跳过")
+                self._audio_buffer.clear()
+                return
+
             self._submit(self._emit(UserStoppedSpeakingFrame()))
-            audio = bytes(self._pcm_buffer)
-            self._pcm_buffer = bytearray()
+            audio = bytes(self._audio_buffer)
+            self._audio_buffer.clear()
             self._submit(self._transcribe_and_push(audio))
 
-    @staticmethod
-    def _extract_vad(msg) -> str:
-        # 兜底：从 context 字段里找 VAD 状态字符串
-        ctx = getattr(msg, "context", []) or []
-        for c in ctx:
-            if c in ("BEGIN", "PROCESSING", "END"):
-                return c
-        return "PROCESSING"
+        elif vad_state == 0:  # 静默
+            if self._is_recording:
+                self._is_recording = False
 
     # ── 把协程安全地丢回 pipeline 的事件循环 ──────────────────────────────
     def _submit(self, coro):
@@ -153,7 +185,7 @@ class ROS2AudioInputProcessor(FrameProcessor):
         await self.push_frame(frame, FrameDirection.DOWNSTREAM)
 
     async def _transcribe_and_push(self, pcm: bytes):
-        if len(pcm) < config.AUDIO_SAMPLE_RATE:  # < ~0.5s，忽略
+        if len(pcm) < 6400:  # < ~0.2s，忽略
             return
         log.info("🎤 [1/4] ROS2 Topic 收到音频 -> 送 ASR 转写")
         text, conf = await self._asr.transcribe(pcm)

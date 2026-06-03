@@ -1,7 +1,7 @@
 # 核心框架
 pipecat-ai>=1.3.0
 langgraph>=0.2.0
-
+dashscope
 # LLM / HTTP
 anthropic>=0.40.0
 aiohttp>=3.9.0
