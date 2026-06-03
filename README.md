@@ -72,7 +72,7 @@ a2_agent/
 
 ## 配置
 
-编辑 `a2_agent/config.py` 或用环境变量：
+编辑 `config.py` 或用环境变量：
 
 ```bash
 export LLM_API_KEY=sk-...            # Anthropic key
@@ -87,14 +87,14 @@ export A2_LIGHT_HOST=192.168.100.100 # 灯带服务
 离线验证逻辑（不需要机器人 / ROS）：
 ```bash
 pip install -r requirements.txt
-python -m a2_agent.test_offline
+python -m test_offline
 ```
 
 机器人上运行：
 ```bash
 pip install prebuilt/a2_aimdk-2.0.1-py3-none-any.whl
 source prebuilt/ros2_plugin_proto_aarch64/share/ros2_plugin_proto/local_setup.bash
-python -m a2_agent.main
+python -m main
 ```
 
 ## 扩展：再加一个 A2 能力

@@ -11,8 +11,8 @@ A2 TTS 播放服务封装（文档 7.5）。
 import logging
 import uuid
 
-from a2_agent.config import TTS_BASE, TTS_PRIORITY, TTS_DOMAIN
-from a2_agent.services.a2_client import a2_client
+from config import TTS_BASE, TTS_PRIORITY, TTS_DOMAIN
+from services.a2_client import a2_client
 
 log = logging.getLogger("a2.tts")
 

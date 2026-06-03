@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 import aiohttp
 
-from a2_agent.config import HTTP_HEADERS, HTTP_TIMEOUT
+from config import HTTP_HEADERS, HTTP_TIMEOUT
 
 log = logging.getLogger("a2.rpc")
 

@@ -15,8 +15,8 @@
 import logging
 from typing import Optional
 
-from a2_agent.config import LIGHT_BASE, LIGHT_PRESETS
-from a2_agent.services.a2_client import a2_client
+from config import LIGHT_BASE, LIGHT_PRESETS
+from services.a2_client import a2_client
 
 log = logging.getLogger("a2.tool.light")
 

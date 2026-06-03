@@ -22,9 +22,9 @@ from typing import Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from a2_agent.config import KEYWORD_TASK_MAP, TASK_NAMES
-from a2_agent.tools.task_engine import launch_task, migrate_to_auto, set_current_task
-from a2_agent.tools.light import set_status_light
+from config import TASK_NAMES
+from tools.task_engine import launch_task, migrate_to_auto, set_current_task
+from tools.light import set_status_light
 
 log = logging.getLogger("a2.skill.launch_task")
 
@@ -88,32 +88,24 @@ def _build_graph():
 _GRAPH = _build_graph()
 
 
-def resolve_task_id(task_id: Optional[str], keyword: Optional[str]) -> Optional[str]:
-    """task_id 优先；否则用关键词查 KEYWORD_TASK_MAP（复刻原脚本的关键词逻辑）。"""
-    if task_id:
-        return task_id
-    if keyword:
-        for kw, tid in KEYWORD_TASK_MAP.items():
-            if kw in keyword:
-                return tid
-    return None
+def resolve_task_id(task_id: Optional[str]) -> Optional[str]:
+    """直接返回 task_id（全权由 LLM 判断）。"""
+    return task_id
 
 
-async def run_launch_task_skill(
-    task_id: Optional[str] = None, keyword: Optional[str] = None
-) -> dict:
+async def run_launch_task_skill(task_id: Optional[str] = None) -> dict:
     """
-    技能入口。给 task_id 或 keyword 其一即可。
+    技能入口。只接受 task_id（全权由 LLM 判断任务）。
 
     返回 {"ok": bool, "message": str, "task_id": str|None}，
     message 会被 pipeline 注入对话上下文，供 LLM 生成回复并 TTS 播出。
     """
-    tid = resolve_task_id(task_id, keyword)
+    tid = resolve_task_id(task_id)
     if not tid:
         return {
             "ok": False,
             "task_id": None,
-            "message": f"没有匹配到可执行的任务（关键词={keyword}）。",
+            "message": "没有传入 task_id，无法启动任务。",
         }
 
     log.info("▶ 执行 launch_task_skill, task_id=%s", tid)

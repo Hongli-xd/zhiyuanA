@@ -32,8 +32,8 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from a2_agent import config
-from a2_agent.services.asr import build_asr
+import config
+from services.asr import build_asr
 
 log = logging.getLogger("a2.ros_audio")
 

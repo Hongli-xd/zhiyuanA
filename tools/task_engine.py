@@ -12,8 +12,8 @@
 
 import logging
 
-from a2_agent.config import SYSTEM_SERVICE_BASE, TASK_ENGINE_BASE
-from a2_agent.services.a2_client import a2_client
+from config import SYSTEM_SERVICE_BASE, TASK_ENGINE_BASE
+from services.a2_client import a2_client
 
 log = logging.getLogger("a2.tool.task")
 

@@ -19,7 +19,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from a2_agent.services.tts import play_tts, stop_all_tts
+from services.tts import play_tts, stop_all_tts
 
 log = logging.getLogger("a2.tts_out")
 

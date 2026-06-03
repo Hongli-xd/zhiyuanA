@@ -13,7 +13,7 @@ A2 语音 Agent 主入口（在机器人上运行）。
   - 交互运行模式设为 normal / voice_face（only_voice 模式不发 TTS 状态）
 
 用法:
-  python -m a2_agent.main
+  python -m main
 """
 
 import asyncio
@@ -23,9 +23,9 @@ import sys
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
 
-from a2_agent.pipeline.build import build_pipeline
-from a2_agent.pipeline.ros_audio_input import ROS2AudioInputProcessor
-from a2_agent.services.a2_client import a2_client
+from pipeline.build import build_pipeline
+from pipeline.ros_audio_input import ROS2AudioInputProcessor
+from services.a2_client import a2_client
 
 logging.basicConfig(
     level=logging.INFO,

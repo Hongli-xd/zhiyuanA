@@ -43,21 +43,25 @@ AUDIO_CHANNELS = 1
 #     这里做成可插拔：默认走 OpenAI 兼容接口，也支持本地 faster-whisper。
 #     部署时把 ASR_API_KEY / ASR_BASE_URL 填上即可，或切换 ASR_PROVIDER=whisper。
 # ──────────────────────────────────────────────────────────────────────────
-ASR_PROVIDER = os.getenv("ASR_PROVIDER", "openai")        # "openai" | "whisper"
-ASR_API_KEY = os.getenv("ASR_API_KEY", "<在此填入你的-API-KEY>")
-ASR_BASE_URL = os.getenv("ASR_BASE_URL", "https://api.openai.com/v1")
-ASR_MODEL = os.getenv("ASR_MODEL", "whisper-1")
+ASR_PROVIDER = os.getenv("ASR_PROVIDER", "funasr")        # "openai" | "whisper" | "funasr"
+ASR_API_KEY = os.getenv("ASR_API_KEY", "sk-e19c26823f0346b1acbc2071705bcb0f")
+# ASR_BASE_URL = os.getenv("ASR_BASE_URL", "https://api.openai.com/v1")
+# ASR_MODEL = os.getenv("ASR_MODEL", "whisper-1")
 ASR_LANGUAGE = os.getenv("ASR_LANGUAGE", "zh")
-# 本地 faster-whisper（断网可用，ORIN 上跑 small/base 约 300–600ms）
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "small")
-WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cuda")      # ORIN 有 GPU
-WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "int8_float16")
+# # 本地 faster-whisper（断网可用，ORIN 上跑 small/base 约 300–600ms）
+# WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "small")
+# WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cuda")      # ORIN 有 GPU
+# WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "int8_float16")
+
+# FunASR（阿里云，ASR_PROVIDER=funasr 时启用）
+FUNASR_MODEL = os.getenv("FUNASR_MODEL", "fun-asr-realtime-2026-02-28")
+FUNASR_LANGUAGE_HINTS = os.getenv("FUNASR_LANGUAGE_HINTS", "zh,en")
 
 # ──────────────────────────────────────────────────────────────────────────
 #  LLM 配置
 # ──────────────────────────────────────────────────────────────────────────
-LLM_API_KEY = os.getenv("LLM_API_KEY", "<在此填入你的-LLM-API-KEY>")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.anthropic.com/v1")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-cp-HT93UTSKgpBYKYbEhTrU2JlSVEFO_6SEXNjQYTYCGZXwhPRCFn9WBt2NEGU9ZIBu7nJqKK3c1oCgBEPH_P7xBM0b9RoedCYi1wq4Q-cUjMYG-gD0NUSH97U")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.minimaxi.com/anthropic/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-5")
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -67,20 +71,13 @@ TTS_PRIORITY = "INTERACTION_L6"
 TTS_DOMAIN = "voice_agent"
 
 # ──────────────────────────────────────────────────────────────────────────
-#  关键词 → AimMaster 任务 ID 映射（来自你上传的脚本）
-#  这是「启动任务」技能的业务数据。
+#  任务 ID → 人类可读名称（LLM 决策与播报用）
 # ──────────────────────────────────────────────────────────────────────────
-KEYWORD_TASK_MAP = {
-    "等人": "2",
-    "电梯门": "2",
-    "开始讲解": "1",
-}
-
-# 任务 ID → 人类可读名称（用于 LLM 决策与播报）
 TASK_NAMES = {
     "1": "讲解任务",
     "2": "电梯等人任务",
 }
+
 
 # ──────────────────────────────────────────────────────────────────────────
 #  灯带预设（来自你给的 curl）

@@ -18,17 +18,16 @@ import logging
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 
-from a2_agent.config import KEYWORD_TASK_MAP, TASK_NAMES
-from a2_agent.services.a2_client import confidence_gate
-from a2_agent.skills.launch_task import run_launch_task_skill
-from a2_agent.tools.light import set_status_light
+from config import TASK_NAMES
+from services.a2_client import confidence_gate
+from skills.launch_task import run_launch_task_skill
+from tools.light import set_status_light
 
 log = logging.getLogger("a2.registry")
 
 
 # ── Schema 定义 ─────────────────────────────────────────────────────────────
 _task_id_enum = list(TASK_NAMES.keys())
-_keyword_enum = list(KEYWORD_TASK_MAP.keys())
 
 light_schema = FunctionSchema(
     name="set_status_light",
@@ -39,9 +38,9 @@ light_schema = FunctionSchema(
             "enum": ["waiting", "working", "done", "off"],
             "description": "状态预设：waiting=等待(紫红), working=工作(蓝), done=完成(绿), off=关闭",
         },
-        "red": {"type": "integer", "description": "可选，自定义红 0-255"},
-        "green": {"type": "integer", "description": "可选，自定义绿 0-255"},
-        "blue": {"type": "integer", "description": "可选，自定义蓝 0-255"},
+        "red": {"type": "integer", "minimum": 0, "maximum": 255, "description": "可选，自定义红 0-255"},
+        "green": {"type": "integer", "minimum": 0, "maximum": 255, "description": "可选，自定义绿 0-255"},
+        "blue": {"type": "integer", "minimum": 0, "maximum": 255, "description": "可选，自定义蓝 0-255"},
     },
     required=[],
 )
@@ -63,7 +62,6 @@ launch_task_schema = FunctionSchema(
     description=(
         "启动一个在 AimMaster 上预先创建好的任务（如讲解、电梯等人）。"
         "内部会自动完成：切换Auto模式→设置当前任务→启动任务三步。"
-        "可以直接给 task_id，或给一个关键词由系统映射到任务。"
     ),
     properties={
         "task_id": {
@@ -71,17 +69,12 @@ launch_task_schema = FunctionSchema(
             "enum": _task_id_enum,
             "description": f"任务ID。{TASK_NAMES}",
         },
-        "keyword": {
-            "type": "string",
-            "enum": _keyword_enum,
-            "description": "关键词，系统按映射表解析为任务ID（task_id 缺省时使用）",
-        },
         "confidence": {
             "type": "number",
             "description": "本次指令识别置信度0-1，可选；低于阈值会被安全门拦截",
         },
     },
-    required=[],
+    required=["task_id"],
 )
 
 
@@ -118,9 +111,7 @@ async def _handle_launch_task(params):
     if not ok:
         await params.result_callback({"ok": False, "message": f"安全拦截：{msg}"})
         return
-    res = await run_launch_task_skill(
-        task_id=a.get("task_id"), keyword=a.get("keyword")
-    )
+    res = await run_launch_task_skill(task_id=a.get("task_id"))
     await params.result_callback(res)
 
 
