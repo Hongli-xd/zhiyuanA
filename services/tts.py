@@ -38,11 +38,12 @@ async def play_tts(text: str, interrupt: bool = True) -> dict:
         "is_interrupted": interrupt,
     }
     res = await a2_client.post_rpc(f"{TTS_BASE}/PlayTTS", payload)
+    log.info("🔊 [4/4] TTS 播放 -> 「%s」 trace_id=%s", text, trace_id)
     return {"ok": res["ok"], "trace_id": trace_id, "raw": res}
 
 
 async def stop_all_tts() -> dict:
     """终止当前及队列中所有 TTS（用户打断 / 需要立刻安静时调用）。"""
     res = await a2_client.post_rpc(f"{TTS_BASE}/StopTTS", {})
-    log.info("StopTTS -> %s", res["status"])
+    log.info("🔇 TTS 停止")
     return res

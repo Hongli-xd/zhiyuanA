@@ -146,9 +146,11 @@ class ROS2AudioInputProcessor(FrameProcessor):
     async def _transcribe_and_push(self, pcm: bytes):
         if len(pcm) < config.AUDIO_SAMPLE_RATE:  # < ~0.5s，忽略
             return
+        log.info("🎤 [1/4] ROS2 Topic 收到音频 -> 送 ASR 转写")
         text, conf = await self._asr.transcribe(pcm)
         if not text:
             return
+        log.info("📝 [2/4] ASR 识别结果 -> 「%s」", text)
         ts = time.strftime("%Y-%m-%dT%H:%M:%S")
         await self.push_frame(
             TranscriptionFrame(text=text, user_id="user", timestamp=ts),

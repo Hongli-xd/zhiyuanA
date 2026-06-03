@@ -5,9 +5,8 @@
 采用技术选型文档推荐的 FunctionSchema 方式（精确控制：enum 约束、必填字段）。
 
 注册的能力：
-  1) set_status_light    —— 工具：灯带/等待状态指示（你的需求 3）
-  2) launch_aimmaster_task —— 技能：启动 AimMaster 任务（重构自 voice_task.py）
-  3) wait_for_person     —— 工具：进入等待状态（亮灯 + 提示），演示「等待控制」
+  1) set_status_light        —— 工具：灯带/等待状态指示
+  2) launch_aimmaster_task   —— 技能：启动 AimMaster 任务（LangGraph StateGraph）
 
 每个 handler 把 result 通过 params.result_callback 回传，
 Pipecat 会自动把结果作为 tool_result 注入对话上下文，触发 LLM 生成回复。
@@ -31,28 +30,15 @@ _task_id_enum = list(TASK_NAMES.keys())
 
 light_schema = FunctionSchema(
     name="set_status_light",
-    description="设置A2机器人灯带颜色/效果，用于向现场人员指示当前状态（等待、工作、完成等）。",
+    description="设置A2机器人灯带颜色/效果，用于向现场人员指示当前状态。预设：waiting=等待(紫红), working=工作(蓝), done=完成(绿), off=关闭。也支持自定义RGB(0-255)。",
     properties={
         "preset": {
             "type": "string",
             "enum": ["waiting", "working", "done", "off"],
-            "description": "状态预设：waiting=等待(紫红), working=工作(蓝), done=完成(绿), off=关闭",
         },
-        "red": {"type": "integer", "minimum": 0, "maximum": 255, "description": "可选，自定义红 0-255"},
-        "green": {"type": "integer", "minimum": 0, "maximum": 255, "description": "可选，自定义绿 0-255"},
-        "blue": {"type": "integer", "minimum": 0, "maximum": 255, "description": "可选，自定义蓝 0-255"},
-    },
-    required=[],
-)
-
-wait_schema = FunctionSchema(
-    name="wait_for_person",
-    description="让机器人进入等待来人的状态：亮起等待灯并保持。用于「等人」「在电梯口等」等场景。",
-    properties={
-        "reason": {
-            "type": "string",
-            "description": "等待原因的简短描述，如「在电梯口等人」",
-        },
+        "red": {"type": "integer", "minimum": 0, "maximum": 255},
+        "green": {"type": "integer", "minimum": 0, "maximum": 255},
+        "blue": {"type": "integer", "minimum": 0, "maximum": 255},
     },
     required=[],
 )
@@ -60,8 +46,7 @@ wait_schema = FunctionSchema(
 launch_task_schema = FunctionSchema(
     name="launch_aimmaster_task",
     description=(
-        "启动一个在 AimMaster 上预先创建好的任务（如讲解、电梯等人）。"
-        "内部会自动完成：切换Auto模式→设置当前任务→启动任务三步。"
+        "启动一个在 AimMaster 上预先创建好的任务。内部自动完成：切换Auto模式→设置当前任务→启动任务三步。"
     ),
     properties={
         "task_id": {
@@ -80,28 +65,23 @@ launch_task_schema = FunctionSchema(
 
 def get_tools_schema() -> ToolsSchema:
     return ToolsSchema(
-        standard_tools=[light_schema, wait_schema, launch_task_schema]
+        standard_tools=[light_schema, launch_task_schema]
     )
 
 
 # ── Handlers ────────────────────────────────────────────────────────────────
 async def _handle_set_light(params):
     a = params.arguments
+    log.info("🔧 [3/4] 调用工具 set_status_light -> preset=%s, RGB=(%s,%s,%s)",
+             a.get("preset"), a.get("red"), a.get("green"), a.get("blue"))
     res = await set_status_light(
         preset=a.get("preset"),
         red=a.get("red"),
         green=a.get("green"),
         blue=a.get("blue"),
     )
+    log.info("✅ [5/5] set_status_light 执行结果 -> %s", res)
     await params.result_callback(res)
-
-
-async def _handle_wait(params):
-    reason = params.arguments.get("reason", "等待中")
-    await set_status_light(preset="waiting")
-    await params.result_callback(
-        {"status": "已进入等待状态，灯带已亮起", "reason": reason}
-    )
 
 
 async def _handle_launch_task(params):
@@ -109,15 +89,19 @@ async def _handle_launch_task(params):
     # 安全兜底：任务启动会触发机器人物理动作（导航/运动），做置信度检查
     ok, msg = confidence_gate.check(a.get("confidence"), "launch_aimmaster_task")
     if not ok:
+        log.warning("⛔ [3/4] launch_aimmaster_task 安全拦截 -> %s", msg)
         await params.result_callback({"ok": False, "message": f"安全拦截：{msg}"})
         return
-    res = await run_launch_task_skill(task_id=a.get("task_id"))
+    task_id = a.get("task_id")
+    log.info("🔧 [3/4] 调用工具 launch_aimmaster_task -> task_id=%s", task_id)
+    res = await run_launch_task_skill(task_id=task_id)
+    log.info("✅ [5/5] launch_aimmaster_task 执行结果 -> ok=%s, task_id=%s, message=%s",
+             res.get("ok"), res.get("task_id"), res.get("message"))
     await params.result_callback(res)
 
 
 def register_all(llm) -> None:
     """把所有 handler 注册到 Pipecat 的 LLM service。"""
     llm.register_function("set_status_light", _handle_set_light)
-    llm.register_function("wait_for_person", _handle_wait)
     llm.register_function("launch_aimmaster_task", _handle_launch_task)
-    log.info("已注册工具: set_status_light, wait_for_person, launch_aimmaster_task")
+    log.info("已注册工具: set_status_light, launch_aimmaster_task")
