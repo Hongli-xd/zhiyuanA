@@ -121,26 +121,40 @@ class ROS2AudioInputProcessor(FrameProcessor):
         """
         try:
             # 检查 serialization_type（必须是 "pb"）
+            serialization_type = getattr(msg, "serialization_type", "unknown")
+            log.debug("📡 收到 ROS 消息, serialization_type=%s, data_len=%d",
+                     serialization_type, len(msg.data) if hasattr(msg, "data") else -1)
+
             if hasattr(msg, "serialization_type") and msg.serialization_type != "pb":
+                log.debug("跳过非 pb 消息: %s", serialization_type)
                 return
 
             # 解析 protobuf
             from ros2_plugin_proto.msg import RosMsgWrapper
             from aimdk.protocol_pb2 import ProcessedAudioOutput
 
+            raw_data = b"".join(msg.data)
+            log.debug("📦 原始数据长度: %d bytes", len(raw_data))
+
             result = ProcessedAudioOutput()
-            result.ParseFromString(b"".join(msg.data))
+            result.ParseFromString(raw_data)
 
             stream_id = result.stream_id
             vad_state = result.vad_state
             audio_data = bytes(result.audio_data)
 
+            log.debug("🔍 stream_id=%d, vad_state=%d, audio_data_len=%d",
+                     stream_id, vad_state, len(audio_data))
+
             # 只处理板载麦克风（stream_id=1）
             if stream_id != 1:
+                log.debug("跳过非板载麦克风 stream_id=%d", stream_id)
                 return
 
         except Exception as e:
             log.error("解析音频消息失败: %s", e)
+            import traceback
+            log.error("堆栈: %s", traceback.format_exc())
             return
 
         # ── VAD 状态机：对齐 voice.py ────────────────────────────────
@@ -162,19 +176,23 @@ class ROS2AudioInputProcessor(FrameProcessor):
             self._is_recording = False
 
             total_size = len(self._audio_buffer)
+            log.info("🎤 语音结束，buffer 大小=%d bytes (%.2fs)", total_size, total_size / 32000)
+
             if total_size < 6400:  # < 0.2s，太短跳过
-                log.info("⏩ 语音太短，跳过")
+                log.info("⏩ 语音太短（%d bytes），跳过", total_size)
                 self._audio_buffer.clear()
                 return
 
             self._submit(self._emit(UserStoppedSpeakingFrame()))
             audio = bytes(self._audio_buffer)
             self._audio_buffer.clear()
+            log.info("🎤 送 ASR 转写，音频大小=%d bytes", len(audio))
             self._submit(self._transcribe_and_push(audio))
 
         elif vad_state == 0:  # 静默
             if self._is_recording:
                 self._is_recording = False
+                log.debug("🔇 静默，重置录音状态")
 
     # ── 把协程安全地丢回 pipeline 的事件循环 ──────────────────────────────
     def _submit(self, coro):
@@ -190,6 +208,7 @@ class ROS2AudioInputProcessor(FrameProcessor):
         log.info("🎤 [1/4] ROS2 Topic 收到音频 -> 送 ASR 转写")
         text, conf = await self._asr.transcribe(pcm)
         if not text:
+            log.info("⏭️ ASR 未识别到文字")
             return
         log.info("📝 [2/4] ASR 识别结果 -> 「%s」", text)
         ts = time.strftime("%Y-%m-%dT%H:%M:%S")
