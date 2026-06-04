@@ -26,6 +26,9 @@ pip install -r requirements.txt
 # Offline self-test (mock RPC, no robot needed)
 python -m test_offline
 
+# Offline test with real MiniMax LLM + FunASR ASR calls (requires network)
+python -m test_offline --online
+
 # Run on robot (requires A2 ROS2 env + a2_aimdk whl)
 source prebuilt/ros2_plugin_proto_aarch64/share/ros2_plugin_proto/local_setup.bash
 python -m main
@@ -55,7 +58,7 @@ A Skill composes multiple Tools into a state machine. Skills are exposed to the 
 `ConfidenceGate` in `services/a2_client.py` intercepts physical-action tools (e.g., `launch_aimmaster_task`). Calls without sufficient confidence (configurable threshold, default 0.6) are blocked. Integrate with ASR confidence or external confirm mechanism for production.
 
 ### Task routing
-`KEYWORD_TASK_MAP` in `config.py` maps spoken keywords to AimMaster task IDs. The `launch_aimmaster_task` skill accepts either a direct `task_id` or a `keyword` that gets resolved through this map. `TASK_NAMES` provides human-readable names used in LLM responses.
+`TASK_NAMES` in `config.py` maps task IDs to human-readable names used in LLM responses and displayed to the user.
 
 ### Tool execution flow
 When LLM calls a tool → handler in `tools/registry.py` → calls HTTP RPC via `A2Client.post_rpc()` → result passed to `result_callback()` → injected into LLM context → LLM generates response → `A2TTSProcessor` speaks it.

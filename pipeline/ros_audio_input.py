@@ -4,6 +4,10 @@ ROS2 音频输入处理器（对齐 voice.py 逻辑）。
 A2 麦克风音频通过 ROS2 Topic /agent/process_audio_output 输出 RosMsgWrapper
 （内嵌序列化后的 ProcessedAudioOutput protobuf）。
 
+启动后先等待唤醒词，唤醒成功 TTS 说"我在呢"后再进入正常音频处理。
+唤醒前：音频帧被丢弃，只监听 /agent/wakeup topic。
+唤醒后：正常 VAD → ASR → TranscriptionFrame 流程。
+
 VAD 状态：
   0 = 静默
   1 = 语音开始
@@ -34,12 +38,20 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 import config
 from services.asr import build_asr
+from services.tts import play_tts
 
 log = logging.getLogger("a2.ros_audio")
 
+IDLE_TIMEOUT = 60  # 秒，空闲多久后重新等待唤醒
+
+# 唤醒回复模式：
+#   "blocking":  TTS 说完再让 pipeline 继续（默认）
+#   "non-blocking": 先让 pipeline 继续，TTS 和 pipeline 并行跑
+WAKEUP_REPLY_MODE = "blocking"
+
 
 class ROS2AudioInputProcessor(FrameProcessor):
-    """订阅 A2 麦克风 Topic，输出 TranscriptionFrame 的源处理器。"""
+    """订阅 A2 麦克风 Topic，唤醒后输出 TranscriptionFrame。"""
 
     def __init__(self):
         super().__init__()
@@ -52,32 +64,37 @@ class ROS2AudioInputProcessor(FrameProcessor):
         self._audio_buffer = bytearray()
         self._is_recording = False
 
+        # 唤醒状态：ROS线程设此事件 → 主循环等待 → 调TTS → 音频处理激活
+        self._wakeup_event = threading.Event()
+        self._audio_active = False  # 唤醒+ TTS完成后才为 True
+        self._last_activity = time.time()  # 上次有效交互时间（唤醒 or 音频识别）
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, StartFrame):
             self._loop = asyncio.get_running_loop()
             self._start_ros()
+            # 启动时等待唤醒（一次性，唤醒后由 _do_wakeup_reply 处理）
+            log.info("等待唤醒...")
+            await self._loop.run_in_executor(None, self._wakeup_event.wait)
+            self._wakeup_event.clear()  # 重置，供后续复用
         elif isinstance(frame, EndFrame):
             self._running = False
         await self.push_frame(frame, direction)
 
-    # ── ROS 线程 ────────────────────────────────────────────────────────────
+    # ── ROS 线程：同时监听唤醒 + 音频，统一入口 ─────────────────────
     def _start_ros(self):
         self._running = True
         self._ros_thread = threading.Thread(target=self._ros_spin, daemon=True)
         self._ros_thread.start()
-        log.info("ROS2 音频订阅线程已启动, topic=%s", config.AUDIO_TOPIC)
 
     def _ros_spin(self):
         try:
             import rclpy
             from rclpy.node import Node
-            from rclpy.qos import (
-                QoSProfile, QoSHistoryPolicy,
-                QoSReliabilityPolicy, QoSDurabilityPolicy,
-            )
+            from rclpy.qos import QoSProfile, QoSHistoryPolicy, QoSReliabilityPolicy, QoSDurabilityPolicy
         except ImportError:
-            log.error("未安装 rclpy，无法订阅音频。请在 A2 机器人环境运行。")
+            log.error("未安装 rclpy，无法订阅音频/唤醒。请在 A2 机器人环境运行。")
             return
 
         if not rclpy.ok():
@@ -85,33 +102,63 @@ class ROS2AudioInputProcessor(FrameProcessor):
 
         parent = self
 
-        class _AudioNode(Node):
+        class _DualNode(Node):
             def __init__(self):
-                super().__init__("a2_agent_audio_node")
-                qos = QoSProfile(
+                super().__init__("a2_agent_dual_node")
+                qos_audio = QoSProfile(
                     history=QoSHistoryPolicy.KEEP_LAST, depth=10,
                     reliability=QoSReliabilityPolicy.BEST_EFFORT,
                     durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
                 )
-                # 对齐 voice.py：完整 topic 名（含 protobuf 后缀）
+                qos_wakeup = QoSProfile(
+                    reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                    durability=QoSDurabilityPolicy.VOLATILE,
+                    depth=10,
+                )
                 from ros2_plugin_proto.msg import RosMsgWrapper
+                # 音频 topic（唤醒前也会收到，但 _handle_ros_audio 会丢弃）
                 self.create_subscription(
-                    RosMsgWrapper, config.AUDIO_TOPIC, self._on_audio, qos
+                    RosMsgWrapper, config.AUDIO_TOPIC, self._on_audio, qos_audio
+                )
+                # 唤醒 topic
+                self.create_subscription(
+                    RosMsgWrapper,
+                    "/agent/wakeup/pb_3Aaimdk_2Eprotocol_2EWakeUpResult",
+                    self._on_wakeup,
+                    qos_wakeup,
                 )
 
             def _on_audio(self, msg):
                 parent._handle_ros_audio(msg)
 
-        node = _AudioNode()
-        try:
-            while self._running and rclpy.ok():
-                rclpy.spin_once(node, timeout_sec=0.1)
-        finally:
-            node.destroy_node()
+            def _on_wakeup(self, msg):
+                log.info("🔔 收到唤醒消息: %s", str(msg)[:300])
+                parent._record_activity()
+                if WAKEUP_REPLY_MODE == "non-blocking":
+                    # 非阻塞：TTS 并行跑，pipeline 不阻塞
+                    parent._audio_active = True
+                    parent._wakeup_event.set()
+                    if parent._loop and parent._loop.is_running():
+                        parent._loop.create_task(parent._do_wakeup_reply())
+                else:
+                    # 阻塞：TTS 说完再让 pipeline 继续
+                    if parent._loop and parent._loop.is_running():
+                        parent._loop.create_task(parent._do_wakeup_reply())
+                    else:
+                        parent._do_wakeup_reply()
+
+    async def _do_wakeup_reply(self):
+        """在主事件循环中执行唤醒回复"""
+        self._audio_active = True
+        log.info("✅ 唤醒成功，TTS 回复『我在呢』")
+        await play_tts("我在呢", interrupt=True)
+        self._wakeup_event.set()
+        log.info("🎤 进入语音交互模式")
 
     def _handle_ros_audio(self, msg):
         """
         解析 A2 音频消息，对齐 voice.py 的 ProcessedAudioOutput protobuf 逻辑。
+        唤醒前丢弃音频帧。空闲超时后自动回等待唤醒状态。
 
         VAD 状态：
           1 = 语音开始
@@ -119,6 +166,9 @@ class ROS2AudioInputProcessor(FrameProcessor):
           3 = 语音结束（触发识别）
           0 = 静默
         """
+        self._idle_check()
+        if not self._audio_active:
+            return
         try:
             # 检查 serialization_type（必须是 "pb"）
             serialization_type = getattr(msg, "serialization_type", "unknown")
@@ -158,6 +208,7 @@ class ROS2AudioInputProcessor(FrameProcessor):
             return
 
         # ── VAD 状态机：对齐 voice.py ────────────────────────────────
+        self._record_activity()
         if vad_state == 1:  # 语音开始
             self._audio_buffer.clear()
             self._is_recording = True
@@ -198,6 +249,17 @@ class ROS2AudioInputProcessor(FrameProcessor):
     def _submit(self, coro):
         if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(coro, self._loop)
+
+    def _idle_check(self):
+        """检查空闲超时，超时后重新等待唤醒"""
+        if time.time() - self._last_activity > IDLE_TIMEOUT:
+            if self._audio_active:
+                log.info("😴 空闲超时，重新进入等待唤醒状态")
+                self._audio_active = False
+                self._wakeup_event.clear()
+
+    def _record_activity(self):
+        self._last_activity = time.time()
 
     async def _emit(self, frame: Frame):
         await self.push_frame(frame, FrameDirection.DOWNSTREAM)

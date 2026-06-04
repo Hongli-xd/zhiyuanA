@@ -3,7 +3,7 @@ A2 语音 Agent 主入口（在机器人上运行）。
 
 启动顺序：
   1. 初始化日志 / A2Client
-  2. 构建 ROS2 音频输入 → pipeline → A2 TTS 输出
+  2. 构建 ROS2 音频输入 → pipeline → A2 TTS 输出（唤醒检测在 pipeline 内完成）
   3. 跑 PipelineRunner
 
 运行前确认：
@@ -37,18 +37,14 @@ log = logging.getLogger("a2.main")
 
 async def run():
     await a2_client.start()
-    print("\n" + "=" * 50)
-    print("🤖 A2 语音 Agent 已启动")
-    print("   等待唤醒...（请对我说话）")
-    print("=" * 50 + "\n")
 
     audio_input = ROS2AudioInputProcessor()
-    pipeline, _llm = build_pipeline(audio_input)
+    pipeline, _ = build_pipeline(audio_input)
 
     task = PipelineTask(pipeline)
     runner = PipelineRunner()
 
-    log.info("A2 语音 Agent 启动，等待语音输入… (Ctrl+C 退出)")
+    log.info("A2 语音 Agent 启动，等待唤醒… (Ctrl+C 退出)")
     try:
         await runner.run(task)
     finally:

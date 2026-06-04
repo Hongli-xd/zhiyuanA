@@ -62,7 +62,7 @@ FUNASR_LANGUAGE_HINTS = os.getenv("FUNASR_LANGUAGE_HINTS", "zh,en")
 # ──────────────────────────────────────────────────────────────────────────
 LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-cp-HT93UTSKgpBYKYbEhTrU2JlSVEFO_6SEXNjQYTYCGZXwhPRCFn9WBt2NEGU9ZIBu7nJqKK3c1oCgBEPH_P7xBM0b9RoedCYi1wq4Q-cUjMYG-gD0NUSH97U")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.minimaxi.com/anthropic/v1")
-LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-5")
+LLM_MODEL = os.getenv("LLM_MODEL", "MiniMax-M2.7")
 
 # ──────────────────────────────────────────────────────────────────────────
 #  TTS 播报默认参数（文档 7.5.1）
