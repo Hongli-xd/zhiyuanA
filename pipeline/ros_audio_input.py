@@ -190,10 +190,18 @@ class ROS2AudioInputProcessor(FrameProcessor):
           3 = 语音结束（触发识别）
           0 = 静默
         """
-        log.info("🎤 _handle_ros_audio 被调用！_audio_active=%s", self._audio_active)
+        # ✅ 诊断日志：看音频帧有没有进来
+        if not hasattr(self, "_diag_count"):
+            self._diag_count = 0
+        self._diag_count += 1
+        if self._diag_count <= 5 or self._diag_count % 100 == 0:
+            log.info("📡 _handle_ros_audio 被调用 #%d, _audio_active=%s",
+                     self._diag_count, self._audio_active)
+
         self._idle_check()
         if not self._audio_active:
-            log.info("🎤 _audio_active=False，丢弃音频帧")
+            if self._diag_count <= 5:
+                log.info("🔇 音频帧被丢弃（_audio_active=False）")
             return
         try:
             # 检查 serialization_type（必须是 "pb"）
