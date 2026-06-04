@@ -108,7 +108,7 @@ class ROS2AudioInputProcessor(FrameProcessor):
                 qos_audio = QoSProfile(
                     history=QoSHistoryPolicy.KEEP_LAST, depth=10,
                     reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                    durability=QoSDurabilityPolicy.VOLATILE,  # 匹配 publisher
                 )
                 qos_wakeup = QoSProfile(
                     reliability=QoSReliabilityPolicy.BEST_EFFORT,
