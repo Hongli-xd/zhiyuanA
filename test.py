@@ -7,7 +7,6 @@
 
 import sys
 import time
-import threading
 
 def main():
     try:
@@ -16,7 +15,7 @@ def main():
         from rclpy.qos import QoSProfile, QoSHistoryPolicy, QoSReliabilityPolicy, QoSDurabilityPolicy
         from ros2_plugin_proto.msg import RosMsgWrapper
     except ImportError as e:
-        print(f"❌ 缺少依赖: {e}")
+        print(f"缺少依赖: {e}")
         return
 
     rclpy.init()
@@ -25,7 +24,6 @@ def main():
         def __init__(self):
             super().__init__("test_audio_listener")
 
-            # 音频 topic
             qos_audio = QoSProfile(
                 history=QoSHistoryPolicy.KEEP_LAST, depth=10,
                 reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -38,7 +36,6 @@ def main():
                 qos_audio,
             )
 
-            # 唤醒 topic（看看唤醒是否还在触发）
             qos_wakeup = QoSProfile(
                 reliability=QoSReliabilityPolicy.BEST_EFFORT,
                 durability=QoSDurabilityPolicy.VOLATILE,
@@ -56,37 +53,36 @@ def main():
             self._start_time = time.time()
 
             print("=" * 60)
-            print("📡 音频监听测试启动")
-            print("   1. 先说唤醒词")
-            print("   2. 唤醒后随便说话")
-            print("   3. 观察是否有音频帧打印")
-            print("   4. Ctrl+C 退出")
+            print("Audio listener test started")
+            print("  1. Say wake word")
+            print("  2. Speak anything after wakeup")
+            print("  3. Watch for audio frame prints")
+            print("  4. Ctrl+C to exit")
             print("=" * 60)
 
         def _on_wakeup(self, msg):
             self._wakeup_count += 1
             elapsed = time.time() - self._start_time
-            print(f"[{elapsed:.1f}s] 🔔 唤醒消息 #{self._wakeup_count}! "
+            print(f"[{elapsed:.1f}s] WAKEUP #{self._wakeup_count}! "
                   f"serialization_type={msg.serialization_type}, data_len={len(msg.data)}")
 
         def _on_audio(self, msg):
             self._audio_count += 1
             elapsed = time.time() - self._start_time
 
-            # 只打印前 10 条 + 之后每 50 条打印一次
             if self._audio_count <= 10 or self._audio_count % 50 == 0:
                 try:
                     raw_data = b"".join(msg.data)
                     from aimdk.protocol_pb2 import ProcessedAudioOutput
                     result = ProcessedAudioOutput()
                     result.ParseFromString(raw_data)
-                    print(f"[{elapsed:.1f}s] 📡 音频帧 #{self._audio_count}: "
+                    print(f"[{elapsed:.1f}s] AUDIO #{self._audio_count}: "
                           f"stream_id={result.stream_id}, vad={result.vad_state}, "
                           f"audio_len={len(result.audio_data)} bytes, "
-                          f"total_raw={len(raw_data)} bytes")
+                          f"raw={len(raw_data)} bytes")
                 except Exception as e:
-                    print(f"[{elapsed:.1f}s] 📡 音频帧 #{self._audio_count}: "
-                          f"parse failed: {e}, raw_data_len={len(b''.join(msg.data))}")
+                    print(f"[{elapsed:.1f}s] AUDIO #{self._audio_count}: "
+                          f"parse_error={e}, raw_len={len(b''.join(msg.data))}")
 
     node = TestNode()
     try:
@@ -94,9 +90,17 @@ def main():
     except KeyboardInterrupt:
         elapsed = time.time() - node._start_time
         print(f"\n{'=' * 60}")
-        print(f"⏹ 测试结束，运行 {elapsed:.1f}s")
-        print(f"   唤醒消息: {node._wakeup_count} 条")
-        print(f"   音频帧: {node._audio_count} 条")
+        print(f"Test done, ran {elapsed:.1f}s")
+        print(f"  Wakeup msgs: {node._wakeup_count}")
+        print(f"  Audio frames: {node._audio_count}")
         if node._audio_count == 0:
-            print("   ❌ 没有收到任何音频帧！问题在 ROS2 topic / QoS / 发布端")
+            print("  NO audio frames received! Problem is ROS2 topic / QoS / publisher")
         else:
+            print("  Audio frames OK! Problem is in your pipeline code")
+        print(f"{'=' * 60}")
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == "__main__":
+    main()
