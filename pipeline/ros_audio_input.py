@@ -132,26 +132,44 @@ class ROS2AudioInputProcessor(FrameProcessor):
                 parent._handle_ros_audio(msg)
 
             def _on_wakeup(self, msg):
-                log.info("🔔 收到唤醒消息: %s", str(msg)[:300])
+                log.info("🔔🔔🔔 _on_wakeup 被调用！msg=%s", str(msg)[:300])
                 parent._record_activity()
+                log.info("🔔 _on_wakeup: _loop=%s, _loop.is_running=%s",
+                         parent._loop, parent._loop.is_running() if parent._loop else "None")
                 if WAKEUP_REPLY_MODE == "non-blocking":
                     # 非阻塞：TTS 并行跑，pipeline 不阻塞
+                    log.info("🔔 非阻塞模式: _audio_active=True")
                     parent._audio_active = True
                     parent._wakeup_event.set()
                     if parent._loop and parent._loop.is_running():
+                        log.info("🔔 create_task(_do_wakeup_reply)")
                         parent._loop.create_task(parent._do_wakeup_reply())
                 else:
                     # 阻塞：TTS 说完再让 pipeline 继续
+                    log.info("🔔 阻塞模式: 创建 wakeup reply 任务")
                     if parent._loop and parent._loop.is_running():
+                        log.info("🔔 create_task(_do_wakeup_reply)")
                         parent._loop.create_task(parent._do_wakeup_reply())
                     else:
+                        log.info("🔔 非运行状态，直接调用 _do_wakeup_reply()")
                         parent._do_wakeup_reply()
+
+        # ✅ 创建节点实例 + spin，回调才能触发
+        node = _DualNode()
+        try:
+            rclpy.spin(node)
+        except Exception as e:
+            log.error("ROS2 spin 异常: %s", e)
+        finally:
+            node.destroy_node()
 
     async def _do_wakeup_reply(self):
         """在主事件循环中执行唤醒回复"""
+        log.info("✅✅✅ _do_wakeup_reply 开始执行！")
         self._audio_active = True
         log.info("✅ 唤醒成功，TTS 回复『我在呢』")
         await play_tts("我在呢", interrupt=True)
+        log.info("✅✅✅ TTS 说完，set wakeup_event")
         self._wakeup_event.set()
         log.info("🎤 进入语音交互模式")
 
@@ -252,11 +270,14 @@ class ROS2AudioInputProcessor(FrameProcessor):
 
     def _idle_check(self):
         """检查空闲超时，超时后重新等待唤醒"""
-        if time.time() - self._last_activity > IDLE_TIMEOUT:
+        idle = time.time() - self._last_activity
+        if idle > IDLE_TIMEOUT:
             if self._audio_active:
-                log.info("😴 空闲超时，重新进入等待唤醒状态")
+                log.info("😴 空闲超时，重新进入等待唤醒状态 (idle=%.1fs)", idle)
                 self._audio_active = False
                 self._wakeup_event.clear()
+        else:
+            log.debug("⏱️ idle_check: idle=%.1fs, _audio_active=%s", idle, self._audio_active)
 
     def _record_activity(self):
         self._last_activity = time.time()
