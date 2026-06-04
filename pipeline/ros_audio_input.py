@@ -132,27 +132,27 @@ class ROS2AudioInputProcessor(FrameProcessor):
                 parent._handle_ros_audio(msg)
 
             def _on_wakeup(self, msg):
-                log.info("🔔🔔🔔 _on_wakeup 被调用！msg=%s", str(msg)[:300])
+                log.info("🔔 _on_wakeup 被调用！msg=%s", str(msg)[:300])
                 parent._record_activity()
-                log.info("🔔 _on_wakeup: _loop=%s, _loop.is_running=%s",
+                log.info("🔔 _loop=%s, is_running=%s",
                          parent._loop, parent._loop.is_running() if parent._loop else "None")
                 if WAKEUP_REPLY_MODE == "non-blocking":
-                    # 非阻塞：TTS 并行跑，pipeline 不阻塞
-                    log.info("🔔 非阻塞模式: _audio_active=True")
                     parent._audio_active = True
                     parent._wakeup_event.set()
                     if parent._loop and parent._loop.is_running():
-                        log.info("🔔 create_task(_do_wakeup_reply)")
-                        parent._loop.create_task(parent._do_wakeup_reply())
-                else:
-                    # 阻塞：TTS 说完再让 pipeline 继续
-                    log.info("🔔 阻塞模式: 创建 wakeup reply 任务")
-                    if parent._loop and parent._loop.is_running():
-                        log.info("🔔 create_task(_do_wakeup_reply)")
-                        parent._loop.create_task(parent._do_wakeup_reply())
+                        log.info("🔔 用 run_coroutine_threadsafe 调度 TTS")
+                        asyncio.run_coroutine_threadsafe(parent._do_wakeup_reply(), parent._loop)
                     else:
-                        log.info("🔔 非运行状态，直接调用 _do_wakeup_reply()")
-                        parent._do_wakeup_reply()
+                        log.info("🔔 非运行状态，用 run_coroutine_threadsafe")
+                        asyncio.run_coroutine_threadsafe(parent._do_wakeup_reply(), parent._loop)
+                else:
+                    log.info("🔔 阻塞模式，调度 TTS")
+                    if parent._loop and parent._loop.is_running():
+                        log.info("🔔 用 run_coroutine_threadsafe 调度 TTS")
+                        asyncio.run_coroutine_threadsafe(parent._do_wakeup_reply(), parent._loop)
+                    else:
+                        log.info("🔔 非运行状态，用 run_coroutine_threadsafe")
+                        asyncio.run_coroutine_threadsafe(parent._do_wakeup_reply(), parent._loop)
 
         # ✅ 创建节点实例 + spin，回调才能触发
         node = _DualNode()
@@ -167,11 +167,15 @@ class ROS2AudioInputProcessor(FrameProcessor):
         """在主事件循环中执行唤醒回复"""
         log.info("✅✅✅ _do_wakeup_reply 开始执行！")
         self._audio_active = True
-        log.info("✅ 唤醒成功，TTS 回复『我在呢』")
-        await play_tts("我在呢", interrupt=True)
-        log.info("✅✅✅ TTS 说完，set wakeup_event")
-        self._wakeup_event.set()
-        log.info("🎤 进入语音交互模式")
+        try:
+            log.info("✅ 唤醒成功，TTS 回复『我在呢』")
+            await play_tts("我在呢", interrupt=True)
+        except Exception as e:
+            log.error("TTS 异常: %s", e)
+        finally:
+            log.info("✅✅✅ TTS 完成（或异常），set wakeup_event")
+            self._wakeup_event.set()
+            log.info("🎤 进入语音交互模式")
 
     def _handle_ros_audio(self, msg):
         """
