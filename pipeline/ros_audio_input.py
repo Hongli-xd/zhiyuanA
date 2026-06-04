@@ -129,6 +129,7 @@ class ROS2AudioInputProcessor(FrameProcessor):
                 )
 
             def _on_audio(self, msg):
+                print("🔊🔊🔊 _on_audio 被调用！ data_len=%d" % (len(msg.data) if hasattr(msg, "data") else -1))
                 parent._handle_ros_audio(msg)
 
             def _on_wakeup(self, msg):
@@ -167,6 +168,7 @@ class ROS2AudioInputProcessor(FrameProcessor):
         """在主事件循环中执行唤醒回复"""
         log.info("✅✅✅ _do_wakeup_reply 开始执行！")
         self._audio_active = True
+        log.info("🎤 进入语音交互模式，_audio_active=True，已订阅音频 topic")
         try:
             log.info("✅ 唤醒成功，TTS 回复『我在呢』")
             await play_tts("我在呢", interrupt=True)
@@ -175,7 +177,7 @@ class ROS2AudioInputProcessor(FrameProcessor):
         finally:
             log.info("✅✅✅ TTS 完成（或异常），set wakeup_event")
             self._wakeup_event.set()
-            log.info("🎤 进入语音交互模式")
+            log.info("🎤 进入语音交互模式，pipeline 继续运行")
 
     def _handle_ros_audio(self, msg):
         """
@@ -188,8 +190,10 @@ class ROS2AudioInputProcessor(FrameProcessor):
           3 = 语音结束（触发识别）
           0 = 静默
         """
+        log.info("🎤 _handle_ros_audio 被调用！_audio_active=%s", self._audio_active)
         self._idle_check()
         if not self._audio_active:
+            log.info("🎤 _audio_active=False，丢弃音频帧")
             return
         try:
             # 检查 serialization_type（必须是 "pb"）
@@ -215,7 +219,11 @@ class ROS2AudioInputProcessor(FrameProcessor):
             vad_state = result.vad_state
             audio_data = bytes(result.audio_data)
 
-            log.debug("🔍 stream_id=%d, vad_state=%d, audio_data_len=%d",
+            stream_id = result.stream_id
+            vad_state = result.vad_state
+            audio_data = bytes(result.audio_data)
+
+            log.info("🎤 音频帧解析: stream_id=%d, vad_state=%d, audio_data_len=%d",
                      stream_id, vad_state, len(audio_data))
 
             # 只处理板载麦克风（stream_id=1）

@@ -41,7 +41,11 @@ async def run():
     audio_input = ROS2AudioInputProcessor()
     pipeline, _ = build_pipeline(audio_input)
 
-    task = PipelineTask(pipeline)
+    task = PipelineTask(
+        pipeline,
+        cancel_on_idle_timeout=False,
+        enable_turn_tracking=False,
+    )
     runner = PipelineRunner()
 
     log.info("A2 语音 Agent 启动，等待唤醒… (Ctrl+C 退出)")
