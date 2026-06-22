@@ -65,7 +65,7 @@ def build_llm():
         settings=AnthropicLLMService.Settings(model=config.LLM_MODEL),
     )
     # Monkey-patch：强制使用 config 的 base_url（解决 pipecat 0.0.108 bug）
-    llm.base_url = config.LLM_BASE_URL.rstrip("/")
+    llm._client.base_url = config.LLM_BASE_URL.rstrip("/")
     register_all(llm)  # 注册所有工具/技能 handler
     return llm
 
