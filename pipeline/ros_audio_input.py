@@ -105,64 +105,78 @@ class ROS2AudioInputProcessor(FrameProcessor):
         class _DualNode(Node):
             def __init__(self):
                 super().__init__("a2_agent_dual_node")
-                qos_audio = QoSProfile(
-                    history=QoSHistoryPolicy.KEEP_LAST, depth=10,
-                    reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                    durability=QoSDurabilityPolicy.VOLATILE,  # 匹配 publisher
-                )
                 qos_wakeup = QoSProfile(
                     reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                    durability=QoSDurabilityPolicy.VOLATILE,
+                    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
                     depth=10,
                 )
                 from ros2_plugin_proto.msg import RosMsgWrapper
-                # 音频 topic（唤醒前也会收到，但 _handle_ros_audio 会丢弃）
-                self.create_subscription(
-                    RosMsgWrapper, config.AUDIO_TOPIC, self._on_audio, qos_audio
-                )
-                # 唤醒 topic
+                # 唤醒 topic - 启动时就订阅
                 self.create_subscription(
                     RosMsgWrapper,
                     "/agent/wakeup/pb_3Aaimdk_2Eprotocol_2EWakeUpResult",
                     self._on_wakeup,
                     qos_wakeup,
                 )
+                print("[_DualNode] 唤醒订阅已创建，音频订阅待唤醒后创建")
 
             def _on_audio(self, msg):
-                print("🔊🔊🔊 _on_audio 被调用！ data_len=%d" % (len(msg.data) if hasattr(msg, "data") else -1))
+                import sys
+                sys.stdout.write(f"🔊🔊🔊 _on_audio 被调用！data_len={len(msg.data) if hasattr(msg, 'data') else -1}\n")
+                sys.stdout.flush()
                 parent._handle_ros_audio(msg)
 
             def _on_wakeup(self, msg):
+                import sys
+                sys.stdout.write(f"🔔 _on_wakeup 被调用！\n")
+                sys.stdout.flush()
                 log.info("🔔 _on_wakeup 被调用！msg=%s", str(msg)[:300])
                 parent._record_activity()
+                # 唤醒后创建音频订阅（embodied_agent 唤醒前不发布音频，延迟订阅避免 DDS 匹配失败）
+                if not hasattr(self, "_audio_subscribed"):
+                    self._audio_subscribed = True
+                    from ros2_plugin_proto.msg import RosMsgWrapper
+                    qos_audio = QoSProfile(
+                        history=QoSHistoryPolicy.KEEP_LAST, depth=10,
+                        reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                    )
+                    self.create_subscription(
+                        RosMsgWrapper, config.AUDIO_TOPIC, self._on_audio, qos_audio
+                    )
+                    print("🔊 音频订阅已在唤醒后创建")
                 log.info("🔔 _loop=%s, is_running=%s",
                          parent._loop, parent._loop.is_running() if parent._loop else "None")
                 if WAKEUP_REPLY_MODE == "non-blocking":
                     parent._audio_active = True
                     parent._wakeup_event.set()
                     if parent._loop and parent._loop.is_running():
-                        log.info("🔔 用 run_coroutine_threadsafe 调度 TTS")
                         asyncio.run_coroutine_threadsafe(parent._do_wakeup_reply(), parent._loop)
                     else:
-                        log.info("🔔 非运行状态，用 run_coroutine_threadsafe")
                         asyncio.run_coroutine_threadsafe(parent._do_wakeup_reply(), parent._loop)
                 else:
                     log.info("🔔 阻塞模式，调度 TTS")
                     if parent._loop and parent._loop.is_running():
-                        log.info("🔔 用 run_coroutine_threadsafe 调度 TTS")
                         asyncio.run_coroutine_threadsafe(parent._do_wakeup_reply(), parent._loop)
                     else:
-                        log.info("🔔 非运行状态，用 run_coroutine_threadsafe")
                         asyncio.run_coroutine_threadsafe(parent._do_wakeup_reply(), parent._loop)
 
         # ✅ 创建节点实例 + spin，回调才能触发
         node = _DualNode()
-        try:
-            rclpy.spin(node)
-        except Exception as e:
-            log.error("ROS2 spin 异常: %s", e)
-        finally:
-            node.destroy_node()
+        print(f"[_ros_spin] node created, topic={config.AUDIO_TOPIC}")
+        spin_count = [0]
+        def spin_loop():
+            while self._running and rclpy.ok():
+                rclpy.spin_once(node, timeout_sec=0.1)
+                spin_count[0] += 1
+                if spin_count[0] % 100 == 0:
+                    print(f"[_ros_spin] spin alive, count={spin_count[0]}")
+        import threading
+        t = threading.Thread(target=spin_loop, daemon=True)
+        t.start()
+        print(f"[_ros_spin] spin thread started")
+        t.join()
+        print(f"[_ros_spin] spin thread ended, total spins={spin_count[0]}")
 
     async def _do_wakeup_reply(self):
         """在主事件循环中执行唤醒回复"""
