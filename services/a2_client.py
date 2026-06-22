@@ -10,6 +10,7 @@ import logging
 from typing import Any, Optional
 
 import aiohttp
+from yarl import URL
 
 from config import HTTP_HEADERS, HTTP_TIMEOUT
 
@@ -40,15 +41,17 @@ class A2Client:
         """
         await self.start()
         assert self._session is not None
+        # yarl 会把路径中的 %2F / %3A 等正确保留，不二次编码
+        encoded_url = str(URL(url, encoded=True))
         try:
-            async with self._session.post(url, json=payload) as resp:
+            async with self._session.post(encoded_url, json=payload) as resp:
                 text = await resp.text()
                 try:
                     data = await resp.json(content_type=None)
                 except Exception:
                     data = None
                 ok = resp.status == 200
-                log.info("RPC %s -> %s | %s", url, resp.status, text[:300])
+                log.info("RPC %s -> %s | %s", encoded_url, resp.status, text[:300])
                 return {"ok": ok, "status": resp.status, "text": text, "json": data}
         except Exception as e:  # 网络/超时
             log.error("RPC %s 失败: %s", url, e)
