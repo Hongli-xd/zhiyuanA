@@ -23,7 +23,7 @@ async def migrate_to_auto() -> bool:
     res = await a2_client.post_rpc(
         f"{SYSTEM_SERVICE_BASE}/MigrateSystemStateSync", {"state": "Auto"}
     )
-    ok = res["ok"] and '"is_success": true' in res["text"]
+    ok = res["ok"] and '"code":"0"' in res["text"]
     log.info("migrate_to_auto -> %s", ok)
     return ok
 
@@ -32,7 +32,7 @@ async def set_current_task(task_id: str) -> bool:
     res = await a2_client.post_rpc(
         f"{TASK_ENGINE_BASE}/SetCurrentTask", {"task_id": task_id}
     )
-    ok = res["ok"] and '"is_success": true' in res["text"]
+    ok = res["ok"] and '"code":"0"' in res["text"]
     log.info("set_current_task(%s) -> %s", task_id, ok)
     return ok
 
