@@ -107,7 +107,7 @@ class ROS2AudioInputProcessor(FrameProcessor):
                 super().__init__("a2_agent_dual_node")
                 qos_wakeup = QoSProfile(
                     reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                    durability=QoSDurabilityPolicy.VOLATILE,
                     depth=10,
                 )
                 from ros2_plugin_proto.msg import RosMsgWrapper
