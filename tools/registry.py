@@ -21,6 +21,7 @@ from config import TASK_NAMES
 from services.a2_client import confidence_gate
 from skills.launch_task import run_launch_task_skill
 from tools.light import set_status_light
+from tools.motion import move
 
 log = logging.getLogger("a2.registry")
 
@@ -41,6 +42,33 @@ light_schema = FunctionSchema(
         "blue": {"type": "integer", "minimum": 0, "maximum": 255},
     },
     required=[],
+)
+
+motion_schema = FunctionSchema(
+    name="move",
+    description="控制机器人移动方向和步数/距离。直线运动走N步或指定距离后自动停止，转向类（原地左/右转）只发指令不计时长。速度默认0.5m/s，用户要求快时提高到0.9m/s。",
+    properties={
+        "direction": {
+            "type": "string",
+            "enum": ["forward", "backward", "left", "right", "left_forward", "right_forward", "stop"],
+            "description": "移动方向：forward=前进, backward=后退, left=原地左转, right=原地右转, left_forward=左前方, right_forward=右前方, stop=停止",
+        },
+        "steps": {
+            "type": "integer",
+            "description": "走几步（默认1步，步长约0.3米）。distance>0时忽略。",
+            "default": 1,
+        },
+        "distance": {
+            "type": "number",
+            "description": "走多少米（单位米），优先级高于steps，自动换算为步数（distance/0.3）。",
+        },
+        "speed": {
+            "type": "number",
+            "description": "运动速度 m/s（默认0.5，最大0.9。用户要求快时提高到0.9）。",
+            "default": 0.5,
+        },
+    },
+    required=["direction"],
 )
 
 launch_task_schema = FunctionSchema(
@@ -65,7 +93,7 @@ launch_task_schema = FunctionSchema(
 
 def get_tools_schema() -> ToolsSchema:
     return ToolsSchema(
-        standard_tools=[light_schema, launch_task_schema]
+        standard_tools=[light_schema, launch_task_schema, motion_schema]
     )
 
 
@@ -81,6 +109,19 @@ async def _handle_set_light(params):
         blue=a.get("blue"),
     )
     log.info("✅ [5/5] set_status_light 执行结果 -> %s", res)
+    await params.result_callback(res)
+
+
+async def _handle_move(params):
+    a = params.arguments
+    direction = a.get("direction")
+    steps = a.get("steps", 1)
+    distance = a.get("distance", 0)
+    speed = a.get("speed", 0.5)
+    log.info("🔧 [3/4] 调用工具 move -> direction=%s, steps=%s, distance=%s, speed=%s",
+             direction, steps, distance, speed)
+    res = await move(direction=direction, steps=steps, distance=distance, speed=speed)
+    log.info("✅ [5/5] move 执行结果 -> %s", res)
     await params.result_callback(res)
 
 
@@ -103,5 +144,6 @@ async def _handle_launch_task(params):
 def register_all(llm) -> None:
     """把所有 handler 注册到 Pipecat 的 LLM service。"""
     llm.register_function("set_status_light", _handle_set_light)
+    llm.register_function("move", _handle_move)
     llm.register_function("launch_aimmaster_task", _handle_launch_task)
-    log.info("已注册工具: set_status_light, launch_aimmaster_task")
+    log.info("已注册工具: set_status_light, move, launch_aimmaster_task")

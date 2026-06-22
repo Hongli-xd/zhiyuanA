@@ -26,6 +26,9 @@ SYSTEM_SERVICE_BASE = f"http://{A2_HOST}:51056/rpc/aimdk.protocol.SystemService"
 # 灯带控制（来自你给的 curl，端口 52893）
 LIGHT_BASE = f"http://{A2_LIGHT_HOST}:52893/rpc/aimdk.protocol.HalRgbLightService"
 
+# 运动控制（ locomote velocity channel，端口 56322）
+MOTION_BASE = f"http://{A2_LIGHT_HOST}:56322/channel/%2Fmotion%2Fcontrol%2Flocomotion_velocity/pb%3Aaimdk.protocol.McLocomotionVelocityChannel"
+
 HTTP_HEADERS = {"content-type": "application/json"}
 HTTP_TIMEOUT = float(os.getenv("A2_HTTP_TIMEOUT", "5"))   # 秒
 
