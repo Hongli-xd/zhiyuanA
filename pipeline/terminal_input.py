@@ -1,11 +1,11 @@
 """
 终端文本输入处理器。
 
-绕过 ASR，通过监控一个文件（/tmp/a2_input.txt）接收文字输入，
+绕过 ASR，通过监控 /a2_input.txt 接收文字输入，
 等价位 ASR 识别结果并入 pipeline。
 
-用法（另一个终端）：
-    echo "往前走两步" > /tmp/a2_input.txt
+用法：
+    echo "往前走两步" > /a2_input.txt
     每行一个命令，写入即发送。
 """
 
@@ -19,7 +19,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 log = logging.getLogger("a2.terminal_input")
 
-INPUT_FILE = "/tmp/a2_input.txt"
+INPUT_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "a2_input.txt")
 
 
 class TerminalTextInput(FrameProcessor):
