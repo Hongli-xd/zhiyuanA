@@ -10,7 +10,7 @@ import logging
 from typing import Any, Optional
 
 import aiohttp
-from yarl import URL
+import requests  # 仅用于特殊路径（如motion），绕开aiohttp的URL编码问题
 
 from config import HTTP_HEADERS, HTTP_TIMEOUT
 
@@ -38,23 +38,52 @@ class A2Client:
         """
         发一个 RPC，返回 {"ok": bool, "status": int, "text": str, "json": dict|None}。
         不抛异常 —— 失败信息打包返回，方便工具层决定如何回复 LLM。
+
+        URL 编码特殊处理：
+          运动控制 channel 的 URL 含有 %2F / %3A 等已编码字符，
+          aiohttp 在内部会先解码再重建，导致路径被破坏（如 %3A -> : 后又被合并）。
+          因此检测到含已编码字符的 URL 时，降级走同步的 requests 库，
+          requests 不会对路径做二次解析，保持原始编码不变。
         """
+        if "%2F" in url or "%3A" in url:
+            return self._post_rpc_sync(url, payload)
+
         await self.start()
         assert self._session is not None
-        # yarl 会把路径中的 %2F / %3A 等正确保留，不二次编码
-        encoded_url = str(URL(url, encoded=True))
         try:
-            async with self._session.post(encoded_url, json=payload) as resp:
+            async with self._session.post(url, json=payload) as resp:
                 text = await resp.text()
                 try:
                     data = await resp.json(content_type=None)
                 except Exception:
                     data = None
                 ok = resp.status == 200
-                log.info("RPC %s -> %s | %s", encoded_url, resp.status, text[:300])
+                log.info("RPC %s -> %s | %s", url, resp.status, text[:300])
                 return {"ok": ok, "status": resp.status, "text": text, "json": data}
         except Exception as e:  # 网络/超时
             log.error("RPC %s 失败: %s", url, e)
+            return {"ok": False, "status": -1, "text": str(e), "json": None}
+
+    def _post_rpc_sync(self, url: str, payload: dict) -> dict:
+        """
+        同步 POST，通过 requests 发送，保留 URL 原始编码不变。
+
+        适用于 motion channel 这类路径中含 %2F / %3A 等编码字符的端点。
+        注意：这是同步调用，会阻塞当前线程，但 motion 指令本身是独立协程，
+        不影响 Pipecat pipeline 的异步运行。
+        """
+        try:
+            resp = requests.post(url, json=payload, timeout=HTTP_TIMEOUT, headers=HTTP_HEADERS)
+            text = resp.text
+            try:
+                data = resp.json()
+            except Exception:
+                data = None
+            ok = resp.status_code == 200
+            log.info("RPC(sync) %s -> %s | %s", url, resp.status_code, text[:300])
+            return {"ok": ok, "status": resp.status_code, "text": text, "json": data}
+        except Exception as e:
+            log.error("RPC(sync) %s 失败: %s", url, e)
             return {"ok": False, "status": -1, "text": str(e), "json": None}
 
 
