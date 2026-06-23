@@ -140,9 +140,11 @@ async def _curl_post(url: str, payload: dict) -> dict:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
     except asyncio.TimeoutError:
         proc.kill()
+        log.error("curl POST %s timeout", url)
         return {"ok": False, "text": "curl timeout"}
 
     resp_text = stdout.decode().strip()
+    stderr_text = stderr.decode().strip()
     ok = proc.returncode == 0 and bool(resp_text)
-    log.info("curl POST %s -> ok=%s resp=%s", url, ok, resp_text[:100])
+    log.info("curl POST %s -> rc=%s stdout=%r stderr=%r", url, proc.returncode, resp_text[:200], stderr_text[:200])
     return {"ok": ok, "text": resp_text}

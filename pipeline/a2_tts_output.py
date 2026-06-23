@@ -7,6 +7,7 @@ A2 TTS 输出处理器。
 放在 pipeline 末端，替代 Pipecat 自带的云 TTS service —— 因为 A2 自己负责发声。
 """
 
+import asyncio
 import logging
 
 from pipecat.frames.frames import (
@@ -20,6 +21,8 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from services.tts import play_tts, stop_all_tts
+from tools.motion_preset import play_motion as play_motion_preset
+from tools.motion_trigger import pick_motion_for_response
 
 log = logging.getLogger("a2.tts_out")
 
@@ -43,6 +46,15 @@ class A2TTSProcessor(FrameProcessor):
 
         # 显式要播报的整句
         if isinstance(frame, TTSSpeakFrame):
+            text = frame.text.strip()
+            motion_name = pick_motion_for_response(text)
+            log.info("🤖 [TTSSpeak] text=%r", text)
+            if motion_name:
+                log.info("🤖 [TTSSpeak] 触发动作 motion=%s（领先0.3s后TTS）", motion_name)
+                asyncio.create_task(play_motion_preset(motion_name))
+                await asyncio.sleep(0.3)
+            else:
+                log.info("🤖 [TTSSpeak] 无匹配动作，直接TTS")
             await play_tts(frame.text, interrupt=True)
             await self.push_frame(frame, direction)
             return
@@ -64,5 +76,17 @@ class A2TTSProcessor(FrameProcessor):
     async def _flush(self):
         text = self._buffer.strip()
         self._buffer = ""
-        if text:
-            await play_tts(text, interrupt=False)
+        if not text:
+            return
+
+        # 触发动作（领先 TTS 0.3s）
+        motion_name = pick_motion_for_response(text)
+        log.info("🤖 [_flush] text=%r", text)
+        if motion_name:
+            log.info("🤖 [_flush] 触发动作 motion=%s（领先0.3s后TTS）", motion_name)
+            asyncio.create_task(play_motion_preset(motion_name))
+            await asyncio.sleep(0.3)
+        else:
+            log.info("🤖 [_flush] 无匹配动作，直接TTS")
+
+        await play_tts(text, interrupt=False)

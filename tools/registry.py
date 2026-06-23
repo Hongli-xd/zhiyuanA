@@ -22,6 +22,7 @@ from services.a2_client import confidence_gate
 from skills.launch_task import run_launch_task_skill
 from tools.light import set_status_light
 from tools.motion import move
+from tools.motion_preset import play_motion
 
 log = logging.getLogger("a2.registry")
 
@@ -90,10 +91,27 @@ launch_task_schema = FunctionSchema(
     required=["task_id"],
 )
 
+motion_preset_schema = FunctionSchema(
+    name="play_motion",
+    description="播放机器人预设动作（如挥手、点头、鞠躬等）。动作名精确匹配预设列表中的名称。",
+    properties={
+        "name": {
+            "type": "string",
+            "description": "动作名称（如：点点头、挥手、打招呼等），精确匹配动作库中的名称。",
+        },
+        "duration_ms": {
+            "type": "integer",
+            "description": "动作持续时间（毫秒），默认 10000。",
+            "default": 10000,
+        },
+    },
+    required=["name"],
+)
+
 
 def get_tools_schema() -> ToolsSchema:
     return ToolsSchema(
-        standard_tools=[light_schema, launch_task_schema, motion_schema]
+        standard_tools=[light_schema, launch_task_schema, motion_schema, motion_preset_schema]
     )
 
 
@@ -125,6 +143,16 @@ async def _handle_move(params):
     await params.result_callback(res)
 
 
+async def _handle_play_motion(params):
+    a = params.arguments
+    name = a.get("name")
+    duration_ms = a.get("duration_ms", 10000)
+    log.info("🔧 [3/4] 调用工具 play_motion -> name=%s, duration_ms=%s", name, duration_ms)
+    res = await play_motion(name=name, duration_ms=duration_ms)
+    log.info("✅ [5/5] play_motion 执行结果 -> %s", res)
+    await params.result_callback(res)
+
+
 async def _handle_launch_task(params):
     a = params.arguments
     # 安全兜底：任务启动会触发机器人物理动作（导航/运动），做置信度检查
@@ -145,5 +173,6 @@ def register_all(llm) -> None:
     """把所有 handler 注册到 Pipecat 的 LLM service。"""
     llm.register_function("set_status_light", _handle_set_light)
     llm.register_function("move", _handle_move)
+    llm.register_function("play_motion", _handle_play_motion)
     llm.register_function("launch_aimmaster_task", _handle_launch_task)
-    log.info("已注册工具: set_status_light, move, launch_aimmaster_task")
+    log.info("已注册工具: set_status_light, move, play_motion, launch_aimmaster_task")
