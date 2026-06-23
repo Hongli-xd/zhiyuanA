@@ -11,11 +11,11 @@
 """
 
 import asyncio
+import json
 import logging
 from typing import Literal
 
 from config import MOTION_BASE
-from services.a2_client import a2_client
 
 log = logging.getLogger("a2.tool.motion")
 
@@ -69,24 +69,26 @@ async def move(
 
     v = TABLE[direction]
 
-    # 构造 payload
+    # 构造 payload（对照用户 curl 成功的格式）
     payload = {
         "header": {
             "timestamp": {"seconds": 0, "nanos": 0, "ms_since_epoch": 0},
-            "control_source": "ControlSource_API",
+            "control_source": "ControlSource_MANUAL",  # 与 curl 保持一致
         },
         "data": {
             "mode": 0,
             "forward_velocity": v["forward"],
             "lateral_velocity": v["lateral"],
-            "angular_velocity": v["angular"],
         },
     }
+    # angular 非零时才加，避免 protobuf 序列化差异
+    if v["angular"] != 0.0:
+        payload["data"]["angular_velocity"] = v["angular"]
 
-    # 发速度指令
-    res = await a2_client.post_rpc(MOTION_BASE, payload)
-    if not res["ok"]:
-        return {"ok": False, "message": f"移动指令发送失败: {res.get('text', '')}"}
+    # 发速度指令（用 curl 绕过 HTTP 库编码问题）
+    curl_res = await _curl_post(MOTION_BASE, payload)
+    if not curl_res["ok"]:
+        return {"ok": False, "message": f"移动指令发送失败: {curl_res.get('text', '')}"}
 
     # 若方向是 stop 或 steps<=0，无需等待直接返回
     if direction == "stop" or steps <= 0:
@@ -94,9 +96,8 @@ async def move(
 
     # 计算运动时长（秒），然后自动停止
     # 直线运动：时长 = steps × step_length / speed
-    # 转向运动： angular 速度 ≈ speed*0.6 rad/s，转一圈 ≈ 2π/speed rad → 不计时长，直接返回
+    # 转向运动：不计时长，直接返回
     if v["angular"] != 0:
-        # 转向类：暂时不发停止，用户说停再说
         return {"ok": True, "message": f"{direction} 已转向", "direction": direction}
 
     duration = steps * STEP_LENGTH / speed
@@ -105,9 +106,43 @@ async def move(
     await asyncio.sleep(duration)
 
     # 发停止指令
-    stop_payload = {**payload}
-    stop_payload["data"].update(forward=0.0, lateral=0.0, angular=0.0)
-    await a2_client.post_rpc(MOTION_BASE, stop_payload)
+    stop_payload = {
+        "header": payload["header"],
+        "data": {
+            "mode": 0,
+            "forward_velocity": 0.0,
+            "lateral_velocity": 0.0,
+            "angular_velocity": 0.0,
+        },
+    }
+    await _curl_post(MOTION_BASE, stop_payload)
 
     dist_msg = f"{distance}m" if distance > 0 else f"{steps}步"
     return {"ok": True, "message": f"{direction} 走了 {dist_msg}，已停止", "direction": direction}
+
+
+async def _curl_post(url: str, payload: dict) -> dict:
+    """用 subprocess curl 发请求，避免 requests/aiohttp 的 URL 编码问题。"""
+    body = json.dumps(payload)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "curl", "-s", "-X", "POST", url,
+            "-H", "content-type:application/json",
+            "-d", body,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except Exception as e:
+        log.error("curl POST %s 启动失败: %s", url, e)
+        return {"ok": False, "text": str(e)}
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return {"ok": False, "text": "curl timeout"}
+
+    resp_text = stdout.decode().strip()
+    ok = proc.returncode == 0 and bool(resp_text)
+    log.info("curl POST %s -> ok=%s resp=%s", url, ok, resp_text[:100])
+    return {"ok": ok, "text": resp_text}
