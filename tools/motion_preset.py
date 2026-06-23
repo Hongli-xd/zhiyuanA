@@ -221,7 +221,7 @@ async def play_motion(name: str, duration_ms: int = 10000) -> dict:
     payload = {
         "motion_id": motion_id,
         "duration_ms": duration_ms,
-        "cmd_end": True,
+        "cmd_end": False,
         "cmd_pause": False,
         "cmd_reset": False,
     }
