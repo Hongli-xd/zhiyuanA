@@ -77,13 +77,11 @@ def build_context() -> LLMContext:
     return ctx
 
 
-def build_pipeline(audio_input, terminal_input=None):
+def build_pipeline(audio_input):
     """
     audio_input: 上游音频源处理器。
       - 机器人上：ROS2AudioInputProcessor
       - 本地测试：MockTextInput（直接喂 TranscriptionFrame）
-    terminal_input: 终端文本输入处理器（可选），绕过 ASR 直接注入文字。
-      若传入，会 link 到 user aggregator，终端输入等价于 ASR 识别结果。
     """
     llm = build_llm()
     context = build_context()
@@ -97,9 +95,4 @@ def build_pipeline(audio_input, terminal_input=None):
         tts_out,                # A2 PlayTTS
         aggregators.assistant(),  # 把助手回复 + 工具结果并入上下文
     ])
-
-    # 终端文本输入 link 到 user aggregator，等价于 ASR 识别结果注入
-    if terminal_input is not None:
-        terminal_input.link(aggregators.user())
-
-    return pipeline, llm, aggregators
+    return pipeline, llm

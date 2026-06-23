@@ -18,7 +18,6 @@ A2 语音 Agent 主入口（在机器人上运行）。
 
 import asyncio
 import logging
-import os
 import sys
 
 from pipecat.pipeline.runner import PipelineRunner
@@ -26,11 +25,7 @@ from pipecat.pipeline.task import PipelineTask
 
 from pipeline.build import build_pipeline
 from pipeline.ros_audio_input import ROS2AudioInputProcessor
-from pipeline.terminal_input import TerminalTextInput
 from services.a2_client import a2_client
-
-# 是否启用终端文本输入（默认启用，可通过环境变量关闭）
-ENABLE_TERMINAL_INPUT = os.getenv("ENABLE_TERMINAL_INPUT", "1") == "1"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,13 +38,8 @@ log = logging.getLogger("a2.main")
 async def run():
     await a2_client.start()
 
-    terminal_input = TerminalTextInput() if ENABLE_TERMINAL_INPUT else None
     audio_input = ROS2AudioInputProcessor()
-    pipeline, _, _ = build_pipeline(audio_input, terminal_input=terminal_input)
-
-    # 在主事件循环中启动文件监控
-    if terminal_input is not None:
-        terminal_input.start_watch(asyncio.get_running_loop())
+    pipeline, _ = build_pipeline(audio_input)
 
     task = PipelineTask(
         pipeline,
