@@ -19,7 +19,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 log = logging.getLogger("a2.terminal_input")
 
-INPUT_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "a2_input.txt")
+INPUT_FILE = "../a2_input.txt"
 
 
 class TerminalTextInput(FrameProcessor):
