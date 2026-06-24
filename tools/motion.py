@@ -58,10 +58,10 @@ async def move(
         "stop":         {"forward": 0.0, "lateral": 0.0, "angular": 0.0},
         "forward":      {"forward": speed, "lateral": 0.0, "angular": 0.0},
         "backward":     {"forward": -speed, "lateral": 0.0, "angular": 0.0},
-        "left":         {"forward": 0.0, "lateral": 0.0, "angular": 0.5},
-        "right":        {"forward": 0.0, "lateral": 0.0, "angular": -0.5},
-        "left_forward": {"forward": speed, "lateral": 0.0, "angular": 0.5},
-        "right_forward":{"forward": speed, "lateral": 0.0, "angular": -0.5},
+        "left":         {"forward": 0.0, "lateral": 0.0, "angular": 0.9},
+        "right":        {"forward": 0.0, "lateral": 0.0, "angular": -0.9},
+        "left_forward": {"forward": speed, "lateral": 0.0, "angular": 0.9},
+        "right_forward":{"forward": speed, "lateral": 0.0, "angular": -0.9},
     }
 
     if direction not in TABLE:
@@ -94,10 +94,18 @@ async def move(
     if direction == "stop" or steps <= 0:
         return {"ok": True, "message": f"{direction} 指令已发送", "direction": direction}
 
-    # 计算运动时长（秒），然后自动停止
-    # 直线运动：时长 = steps × step_length / speed
-    # 转向运动：不计时长，直接返回
+    # 转向：发 angular → 等 1.4s（约80°）→ 发停止
     if v["angular"] != 0:
+        target_angle = abs(v["angular"])  # rad/s
+        turn_duration = abs(80 / (target_angle * 180 / 3.14159))  # 80°对应的秒数
+        log.info("move: 方向=%s, angular=%.1f rad/s, 转向时长=%.1f秒", direction, v["angular"], turn_duration)
+        await asyncio.sleep(turn_duration)
+        # 发停止
+        stop_payload = {
+            "header": payload["header"],
+            "data": {"mode": 0, "forward_velocity": 0.0, "lateral_velocity": 0.0, "angular_velocity": 0.0},
+        }
+        await _curl_post(MOTION_BASE, stop_payload)
         return {"ok": True, "message": f"{direction} 已转向", "direction": direction}
 
     duration = steps * STEP_LENGTH / speed
