@@ -12,6 +12,7 @@ motion_id 对应一个 .mcap 文件路径（机器人事先录制好的动作）
 import asyncio
 import json
 import logging
+import time
 from typing import Literal, Optional
 
 from config import A2_LIGHT_HOST
@@ -21,8 +22,10 @@ log = logging.getLogger("a2.tool.motion_preset")
 MOTION_BASE = f"http://{A2_LIGHT_HOST}:56444/rpc/aimdk.protocol.MotionCommandService/SendMotionCommand"
 
 # 动作名 -> motion_id（省略 /agibot/data/resources/default/motion/ 前缀）
-# 完整路径由代码拼接
 MOTION_PREFIX = "/agibot/data/resources/default/motion/"
+
+# 正在执行中的 motion 名集合（防止同一动作重复触发）
+_running_motions: set[str] = set()
 
 # 预设动作映射表（动作名 -> .mcap 文件名，共 133 种）
 MOTION_MAP: dict[str, str] = {
@@ -202,19 +205,28 @@ async def play_motion(name: str, duration_ms: int = 10000) -> dict:
     Returns:
         {"ok": bool, "message": str}
     """
+    # 去重：同一动作正在执行中则跳过
+    if name in _running_motions:
+        log.info("[motion] ⚠️  动作「%s」执行中，跳过重复调用", name)
+        return {"ok": True, "message": f"动作「{name}」执行中，跳过重复"}
+
+    _running_motions.add(name)
+    log.info("[motion] ▶️  执行动作「%s」（duration_ms=%d）", name, duration_ms)
+
     if name not in MOTION_MAP:
+        _running_motions.discard(name)
         top_matches = _fuzzy_match(name, list(MOTION_MAP.keys()))
         if top_matches and top_matches[0][1] > 0.2:
             best, _ = top_matches[0]
             return {
                 "ok": False,
                 "suggest": best,
-                "message": f"没有'{name}'这个动作，最接近的是'{best}'。"
+                "message": f"没有「{name}」这个动作，最接近的是「{best}」。"
             }
         available = ", ".join(sorted(MOTION_MAP.keys())[:10])
         return {
             "ok": False,
-            "message": f"未知动作: {name}，可用示例: {available}..."
+            "message": f"未知动作「{name}」，可用示例: {available}..."
         }
 
     motion_id = MOTION_PREFIX + MOTION_MAP[name]
@@ -225,9 +237,9 @@ async def play_motion(name: str, duration_ms: int = 10000) -> dict:
         "cmd_pause": False,
         "cmd_reset": False,
     }
-
     body = json.dumps(payload, ensure_ascii=False)
-    log.info("🤖 [motion] >>> curl POST %s body=%s", MOTION_BASE, body[:100])
+    log.info("[motion] >>> curl -s -X POST \\\n    %s \\\n    -H 'content-type:application/json' \\\n    -d '%s'", MOTION_BASE, body)
+
     try:
         proc = await asyncio.create_subprocess_exec(
             "curl", "-s", "-X", "POST", MOTION_BASE,
@@ -238,13 +250,19 @@ async def play_motion(name: str, duration_ms: int = 10000) -> dict:
         )
         stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
         resp_text = stdout.decode().strip()
-        ok = proc.returncode == 0 and bool(resp_text)
-        log.info("play_motion(%s) -> ok=%s resp=%s", name, ok, resp_text[:200])
+        ok = proc.returncode == 0  # rc=0 即成功，stdout 空不影响
         if ok:
-            return {"ok": True, "message": f"动作 {name} 已播放"}
-        return {"ok": False, "message": f"动作播放失败: {resp_text[:100]}"}
+            time.sleep(0.5)
+            log.info("[motion] ✅ 动作「%s」执行成功 | resp=%s", name, resp_text[:150])
+            return {"ok": True, "message": f"动作「{name}」已播放"}
+        else:
+            log.warning("[motion] ❌ 动作「%s」执行失败 | curl rc=%d resp=%s", name, proc.returncode, resp_text[:150])
+            return {"ok": False, "message": f"动作「{name}」执行失败: {resp_text[:100]}"}
     except asyncio.TimeoutError:
-        return {"ok": False, "message": "动作播放超时"}
+        log.error("[motion] ❌ 动作「%s」执行超时（5s）", name)
+        return {"ok": False, "message": f"动作「{name}」播放超时"}
     except Exception as e:
-        log.error("play_motion(%s) 失败: %s", name, e)
+        log.error("[motion] ❌ 动作「%s」执行异常: %s", name, e)
         return {"ok": False, "message": str(e)}
+    finally:
+        _running_motions.discard(name)  # 执行完毕，释放锁

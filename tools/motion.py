@@ -58,10 +58,10 @@ async def move(
         "stop":         {"forward": 0.0, "lateral": 0.0, "angular": 0.0},
         "forward":      {"forward": speed, "lateral": 0.0, "angular": 0.0},
         "backward":     {"forward": -speed, "lateral": 0.0, "angular": 0.0},
-        "left":         {"forward": 0.0, "lateral": 0.0, "angular": speed * 0.6},
-        "right":        {"forward": 0.0, "lateral": 0.0, "angular": -speed * 0.6},
-        "left_forward": {"forward": speed, "lateral": 0.0, "angular": speed * 0.6},
-        "right_forward":{"forward": speed, "lateral": 0.0, "angular": -speed * 0.6},
+        "left":         {"forward": 0.0, "lateral": 0.0, "angular": 0.5},
+        "right":        {"forward": 0.0, "lateral": 0.0, "angular": -0.5},
+        "left_forward": {"forward": speed, "lateral": 0.0, "angular": 0.5},
+        "right_forward":{"forward": speed, "lateral": 0.0, "angular": -0.5},
     }
 
     if direction not in TABLE:
@@ -145,6 +145,6 @@ async def _curl_post(url: str, payload: dict) -> dict:
 
     resp_text = stdout.decode().strip()
     stderr_text = stderr.decode().strip()
-    ok = proc.returncode == 0 and bool(resp_text)
+    ok = proc.returncode == 0  # rc=0 即成功，stdout 为空不影响
     log.info("curl POST %s -> rc=%s stdout=%r stderr=%r", url, proc.returncode, resp_text[:200], stderr_text[:200])
     return {"ok": ok, "text": resp_text}
