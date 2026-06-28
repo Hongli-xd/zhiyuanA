@@ -58,10 +58,10 @@ async def move(
         "stop":         {"forward": 0.0, "lateral": 0.0, "angular": 0.0},
         "forward":      {"forward": speed, "lateral": 0.0, "angular": 0.0},
         "backward":     {"forward": -speed, "lateral": 0.0, "angular": 0.0},
-        "left":         {"forward": 0.0, "lateral": 0.0, "angular": 0.9},
-        "right":        {"forward": 0.0, "lateral": 0.0, "angular": -0.9},
-        "left_forward": {"forward": speed, "lateral": 0.0, "angular": 0.9},
-        "right_forward":{"forward": speed, "lateral": 0.0, "angular": -0.9},
+        "left":         {"forward": 0.0, "lateral": 0.0, "angular": 0.8},
+        "right":        {"forward": 0.0, "lateral": 0.0, "angular": -0.8},
+        "left_forward": {"forward": speed, "lateral": 0.0, "angular": 0.8},
+        "right_forward":{"forward": speed, "lateral": 0.0, "angular": -0.8},
     }
 
     if direction not in TABLE:
@@ -96,37 +96,23 @@ async def move(
 
     # 转向：发 angular → 等 1.4s（约80°）→ 发停止
     if v["angular"] != 0:
-        target_angle = abs(v["angular"])  # rad/s
-        turn_duration = abs(80 / (target_angle * 180 / 3.14159))  # 80°对应的秒数
-        log.info("move: 方向=%s, angular=%.1f rad/s, 转向时长=%.1f秒", direction, v["angular"], turn_duration)
-        await asyncio.sleep(turn_duration)
-        # 发停止
-        stop_payload = {
-            "header": payload["header"],
-            "data": {"mode": 0, "forward_velocity": 0.0, "lateral_velocity": 0.0, "angular_velocity": 0.0},
-        }
-        await _curl_post(MOTION_BASE, stop_payload)
+        # 连发 6 次同一指令，每次间隔 0.3s（robot 会累加转向角度）
+        for _ in range(6):
+            res = await _curl_post(MOTION_BASE, payload)
+            if not res["ok"]:
+                return {"ok": False, "message": f"{direction} 转向失败"}
+            await asyncio.sleep(0.3)
         return {"ok": True, "message": f"{direction} 已转向", "direction": direction}
 
-    duration = steps * STEP_LENGTH / speed
-    log.info("move: 方向=%s, 速度=%.2f m/s, 步数=%d(%.1fm), 预计时长=%.1f秒",
-             direction, speed, steps, distance if distance > 0 else steps * STEP_LENGTH, duration)
-    await asyncio.sleep(duration)
+    # 直线：连发 6 次，每次间隔 0.3s（robot 自行处理停止）
+    for _ in range(6):
+        res = await _curl_post(MOTION_BASE, payload)
+        if not res["ok"]:
+            return {"ok": False, "message": f"{direction} 前进失败"}
+        await asyncio.sleep(0.3)
 
-    # 发停止指令
-    stop_payload = {
-        "header": payload["header"],
-        "data": {
-            "mode": 0,
-            "forward_velocity": 0.0,
-            "lateral_velocity": 0.0,
-            "angular_velocity": 0.0,
-        },
-    }
-    await _curl_post(MOTION_BASE, stop_payload)
-
-    dist_msg = f"{distance}m" if distance > 0 else f"{steps}步"
-    return {"ok": True, "message": f"{direction} 走了 {dist_msg}，已停止", "direction": direction}
+    dist_msg = f"{distance}m" if distance > 0 else f"6步"
+    return {"ok": True, "message": f"{direction} 走了 {dist_msg}", "direction": direction}
 
 
 async def _curl_post(url: str, payload: dict) -> dict:
